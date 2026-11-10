@@ -1,0 +1,24 @@
+{
+  "class_names": [
+    "Audi",
+    "BMW",
+    "Ford",
+    "Hyundai",
+    "Mercedes-Benz",
+    "Other",
+    "Toyota",
+    "Volkswagen"
+  ],
+  "results": {
+    "LogReg(CNN特徵)": {
+      "accuracy": 0.5498,
+      "macro_f1": 0.5224
+    },
+    "CNN遷移學習": {
+      "accuracy": 0.7097,
+      "macro_f1": 0.6952,
+      "top2_accuracy": 0.8872
+    }
+  },
+  "n_test": 3803
+}

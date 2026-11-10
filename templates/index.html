@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>拍照估車價｜二手車 AI 估價系統</title>
+<script src="{{ url_for('static', filename='chart.umd.min.js') }}"></script>
+<style>
+  body { font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; background:#f3f5f8; margin:0; color:#222; }
+  header { background:#1f3b57; color:#fff; padding:18px 32px; }
+  header h1 { margin:0; font-size:24px; }
+  header p { margin:4px 0 0; opacity:.85; font-size:14px; }
+  main { max-width:1100px; margin:24px auto; padding:0 16px; }
+  .card { background:#fff; border-radius:12px; padding:22px; margin-bottom:18px; box-shadow:0 2px 8px rgba(0,0,0,.06); }
+  .step { display:inline-block; background:#1f3b57; color:#fff; border-radius:50%; width:28px; height:28px;
+          text-align:center; line-height:28px; margin-right:8px; font-weight:bold; }
+  h2 { margin:0 0 14px; font-size:20px; }
+  .row { display:flex; gap:20px; flex-wrap:wrap; align-items:flex-start; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:14px; }
+  label { display:block; font-size:13px; color:#666; margin-bottom:4px; }
+  select, input, button { font-size:16px; padding:8px 12px; border-radius:8px; border:1px solid #ccc;
+                          font-family:inherit; width:100%; box-sizing:border-box; }
+  button { background:#1f3b57; color:#fff; border:none; cursor:pointer; width:auto; padding:10px 26px; }
+  button:hover { background:#152a3f; }
+  .hint { font-size:13px; color:#888; }
+  .err { color:#c00; }
+  #preview { max-width:360px; max-height:240px; border-radius:10px; display:none; }
+  .brand-big { font-size:34px; font-weight:bold; margin:4px 0; }
+  .bar { height:22px; background:#e8edf3; border-radius:6px; margin:4px 0 10px; overflow:hidden; }
+  .bar > div { height:100%; background:#3c78b4; color:#fff; font-size:13px; line-height:22px; padding-left:8px; white-space:nowrap; }
+  .price-cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:14px; }
+  .pc { border:1px solid #e3e7ec; border-radius:10px; padding:14px; text-align:center; }
+  .pc.best { border:2px solid #2e8b57; background:#f1faf4; }
+  .pc .twd { font-size:28px; font-weight:bold; margin:6px 0; }
+  .note { background:#fff8e1; border-left:4px solid #f0b400; padding:8px 12px; border-radius:6px; font-size:14px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td, th { padding:7px; border-bottom:1px solid #eee; text-align:center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚗 拍照估車價：二手車 AI 估價系統</h1>
+  <p>圖片辨識（Keras CNN 遷移學習）＋ 價格預測（Scikit-Learn ／ Keras 神經網路）</p>
+</header>
+<main>
+  <!-- 步驟 1：拍照 -->
+  <div class="card">
+    <h2><span class="step">1</span>拍一張車子的照片</h2>
+    <div class="row">
+      <div style="flex:1; min-width:260px">
+        <label>上傳照片（手機可直接拍照）</label>
+        <input type="file" id="photo" accept="image/*">
+        <p class="hint">拍攝小技巧：拍整台車、車頭或斜前方最好認（看得到水箱罩和車標）。</p>
+        <button onclick="recognize()">辨識品牌</button>
+        <p id="imgErr" class="err"></p>
+      </div>
+      <img id="preview">
+      <div id="brandResult" style="flex:1; min-width:240px; display:none">
+        <div class="hint">辨識結果</div>
+        <div class="brand-big" id="brandName"></div>
+        <div id="topList"></div>
+        <div id="brandNote" class="note" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 步驟 2：車況 -->
+  <div class="card">
+    <h2><span class="step">2</span>確認品牌、輸入車況</h2>
+    <div class="grid">
+      <div><label>品牌（可手動修改）</label><select id="brand" onchange="fillBrand()"></select></div>
+      <div><label>車型</label><select id="model"></select></div>
+      <div><label>出廠年份</label><input type="number" id="year"></div>
+      <div><label>里程（公里）</label><input type="number" id="km" value="60000" step="1000"></div>
+      <div><label>變速箱</label><select id="trans"></select></div>
+      <div><label>燃料</label><select id="fuel"></select></div>
+      <div><label>排氣量（公升）</label><input type="number" id="engine" step="0.1"></div>
+    </div>
+    <p style="margin-top:16px"><button onclick="estimate()">開始估價</button></p>
+    <p id="priceErr" class="err"></p>
+  </div>
+
+  <!-- 步驟 3：結果 -->
+  <div class="card" id="priceCard" style="display:none">
+    <h2><span class="step">3</span>估價結果</h2>
+    <div class="price-cards" id="priceCards"></div>
+    <p class="hint" id="priceNote"></p>
+    <canvas id="curve" height="90" style="margin-top:12px"></canvas>
+  </div>
+
+  <!-- 模型表現 -->
+  <div class="card">
+    <h2>📊 模型表現（測試集）</h2>
+    <div class="row">
+      <div style="flex:1; min-width:300px"><b>價格預測</b><table id="pmTable"></table></div>
+      <div style="flex:1; min-width:300px"><b>品牌辨識</b><table id="imTable"></table></div>
+    </div>
+    <p class="hint">⚠ 價格資料來自英國二手車市場（約 2020 年），台幣金額依匯率換算，僅供參考，和台灣實際行情會有差異。</p>
+  </div>
+</main>
+
+<script>
+let OPT = {}, RATE = 44, chart;
+const fmt = n => n.toLocaleString("zh-TW");
+
+async function init() {
+  const d = await (await fetch("/api/options")).json();
+  OPT = d.options; RATE = d.gbp_to_twd;
+  const b = document.getElementById("brand");
+  b.innerHTML = Object.keys(OPT).map(x => `<option>${x}</option>`).join("");
+  const y = document.getElementById("year");
+  y.min = d.year_range[0]; y.max = d.year_range[1]; y.value = d.year_range[1] - 4;
+  fillBrand();
+  document.getElementById("pmTable").innerHTML = "<tr><th>模型</th><th>平均誤差</th><th>誤差率</th></tr>" +
+    Object.entries(d.price_metrics).map(([k, v]) =>
+      `<tr${k === d.best_price_model ? ' style="background:#f1faf4;font-weight:bold"' : ""}><td>${k}</td>` +
+      `<td>£${fmt(Math.round(v["MAE_£"]))}</td><td>${v["MAPE_%"]}%</td></tr>`).join("");
+  document.getElementById("imTable").innerHTML = "<tr><th>模型</th><th>準確率</th><th>Macro-F1</th></tr>" +
+    Object.entries(d.image_metrics).map(([k, v]) =>
+      `<tr><td>${k}</td><td>${(v.accuracy * 100).toFixed(1)}%</td><td>${v.macro_f1.toFixed(3)}</td></tr>`).join("");
+}
+
+function fillBrand() {
+  const o = OPT[document.getElementById("brand").value]; if (!o) return;
+  document.getElementById("model").innerHTML = o.models.map(x => `<option>${x}</option>`).join("");
+  document.getElementById("trans").innerHTML = o.transmission.map(x => `<option>${x}</option>`).join("");
+  document.getElementById("fuel").innerHTML = o.fuel.map(x => `<option>${x}</option>`).join("");
+  document.getElementById("engine").value = o.engine_median;
+}
+
+async function recognize() {
+  const file = document.getElementById("photo").files[0];
+  const err = document.getElementById("imgErr"); err.textContent = "";
+  if (!file) { err.textContent = "請先選擇照片"; return; }
+  const pv = document.getElementById("preview"); pv.src = URL.createObjectURL(file); pv.style.display = "block";
+  const form = new FormData(); form.append("photo", file);
+  const res = await fetch("/api/recognize", { method: "POST", body: form });
+  const d = await res.json();
+  if (!res.ok) { err.textContent = d.error; return; }
+  document.getElementById("brandResult").style.display = "block";
+  document.getElementById("brandName").textContent = d.label;
+  document.getElementById("topList").innerHTML = d.top.map(t =>
+    `<div style="font-size:14px">${t.label}</div><div class="bar"><div style="width:${Math.max(t.prob, 8)}%">${t.prob}%</div></div>`).join("");
+  const note = document.getElementById("brandNote");
+  note.style.display = d.note ? "block" : "none"; note.textContent = d.note;
+  if (d.priceable) { document.getElementById("brand").value = d.brand; fillBrand(); }
+}
+
+async function estimate() {
+  const body = {
+    brand: v("brand"), model: v("model"), year: v("year"), mileage_km: v("km"),
+    transmission: v("trans"), fuel: v("fuel"), engine: v("engine"),
+  };
+  const res = await fetch("/api/price", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const d = await res.json();
+  const err = document.getElementById("priceErr");
+  if (!res.ok) { err.textContent = d.error; return; } err.textContent = "";
+  document.getElementById("priceCard").style.display = "block";
+  document.getElementById("priceCards").innerHTML = Object.entries(d.preds).map(([k, p]) =>
+    `<div class="pc ${k === d.best ? "best" : ""}"><div>${k}${k === d.best ? "（最準）" : ""}</div>` +
+    `<div class="twd">NT$ ${fmt(p.twd)}</div><div class="hint">£${fmt(p.gbp)}</div></div>`).join("");
+  document.getElementById("priceNote").textContent =
+    `以最準的 ${d.best} 為準，測試集平均誤差率約 ${d.mape}%。匯率以 1 英鎊 ≈ ${RATE} 台幣換算。`;
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById("curve"), {
+    type: "line",
+    data: { labels: d.curve.labels, datasets: [{ label: "預估價格 (NT$)", data: d.curve.twd,
+            borderColor: "#2e8b57", backgroundColor: "rgba(46,139,87,.12)", fill: true, tension: .3 }] },
+    options: { plugins: { title: { display: true, text: "折舊試算：照目前的開車習慣，再開幾年後大概值多少？" } },
+               scales: { y: { ticks: { callback: x => "NT$" + fmt(x) } } } }
+  });
+}
+const v = id => document.getElementById(id).value;
+init();
+</script>
+</body>
+</html>

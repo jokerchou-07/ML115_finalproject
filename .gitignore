@@ -1,0 +1,10 @@
+data/
+__pycache__/
+.venv/
+.ipynb_checkpoints/
+
+# 模型檔太大不上傳，但保留圖表和數據（簡報要用）
+models/**
+!models/*/
+!models/**/*.png
+!models/**/metrics.json
